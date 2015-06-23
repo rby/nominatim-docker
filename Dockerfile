@@ -4,12 +4,11 @@ MAINTAINER Jan Nonnen <helvalius@gmail.com>
 RUN apt-get update
 
 # Install basic software
-RUN apt-get -y install wget
-
+RUN apt-get -y install wget curl sudo bc
 
 # Note: libgeos++-dev is included here too (the nominatim install page suggests installing it if there is a problem with the 'pear install DB' below - it seems safe to install it anyway)
-RUN apt-get -y install build-essential
-RUN apt-get -y install gcc git osmosis
+RUN apt-get -y install build-essential autoconf-archive
+RUN apt-get -y install gcc git osmosis osmctools
 RUN apt-get -y install libxml2-dev libgeos-dev libpq-dev libbz2-dev libtool automake libproj-dev
 RUN apt-get -y install proj-bin libgeos-c1 libgeos++-dev
 
@@ -20,17 +19,8 @@ RUN apt-get -y install autoconf make g++ libboost-dev \
 # Install PHP5
 RUN apt-get -y install php5 php-pear php5-pgsql php5-json php-db
 
-# From the website "If you plan to install the source from github, the following additional packages are needed:"
-# RUN apt-get -y install git autoconf-archive
-
 # Install Postgres, PostGIS and dependencies
 RUN apt-get -y install postgresql postgis postgresql-contrib postgresql-9.3-postgis-2.1 postgresql-server-dev-9.3
-
-
-# Some additional packages that may not already be installed
-# bc is needed in configPostgresql.sh
-RUN apt-get -y install bc
-
 
 # Install Apache
 RUN apt-get -y install apache2
@@ -38,10 +28,7 @@ RUN apt-get -y install apache2
 # Add Protobuf support
 RUN apt-get -y install libprotobuf-c0-dev protobuf-c-compiler
 
-RUN apt-get install -y sudo
-
-#
-
+# Install nominatim
 RUN pear install DB
 RUN useradd -m -p password1234 nominatim
 RUN mkdir -p /app/nominatim
@@ -53,39 +40,23 @@ RUN ./configure
 RUN make
 
 # Configure postgresql
-RUN service postgresql start && \
+RUN service postgresql start && sleep 10 && \
   pg_dropcluster --stop 9.3 main
-RUN service postgresql start && \
+RUN service postgresql start && sleep 10 && \
   pg_createcluster --start -e UTF-8 9.3 main
 
-RUN service postgresql start && \
+RUN service postgresql start && sleep 10 && \
   sudo -u postgres psql postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='nominatim'" | grep -q 1 || sudo -u postgres createuser -s nominatim && \
   sudo -u postgres psql postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='www-data'" | grep -q 1 || sudo -u postgres createuser -SDR www-data && \
   sudo -u postgres psql postgres -c "DROP DATABASE IF EXISTS nominatim"
 
-RUN wget --output-document=/app/data.pbf http://download.geofabrik.de/europe/monaco-latest.osm.pbf
-# RUN wget --output-document=/app/data.pbf http://download.geofabrik.de/europe/luxembourg-latest.osm.pbf
-# RUN wget --output-document=/app/data.pbf http://download.geofabrik.de/north-america-latest.osm.pbf
-# RUN wget --output-document=/app/data.pbf http://download.geofabrik.de/north-america/us/delaware-latest.osm.pbf
-
 WORKDIR /app/nominatim
 
 ADD local.php /app/nominatim/settings/local.php
-
-
-RUN ./utils/setup.php --help
-
-
-RUN service postgresql start && \
-  sudo -u nominatim ./utils/setup.php --osm-file /app/data.pbf --all --threads 2
-
+ADD merge-pbf.sh /app/nominatim/
 
 RUN mkdir -p /var/www/nominatim
-RUN ls settings/
-RUN cat settings/local.php
 RUN ./utils/setup.php --create-website /var/www/nominatim
-
-
 
 # Adjust PostgreSQL configuration so that remote connections to the
 # database are possible.
@@ -97,7 +68,7 @@ RUN echo "listen_addresses='*'" >> /etc/postgresql/9.3/main/postgresql.conf
 # Expose the PostgreSQL port
 EXPOSE 5432
 
-RUN apt-get install -y curl
+# Add the site and start apache
 ADD 400-nominatim.conf /etc/apache2/sites-available/400-nominatim.conf
 ADD httpd.conf /etc/apache2/
 RUN service apache2 start && \
@@ -106,7 +77,6 @@ RUN service apache2 start && \
 
 # Expose the HTTP port
 EXPOSE 8080
-
 
 ADD configPostgresql.sh /app/nominatim/configPostgresql.sh
 WORKDIR /app/nominatim
