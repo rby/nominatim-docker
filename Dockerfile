@@ -28,6 +28,9 @@ RUN apt-get -y install apache2
 # Add Protobuf support
 RUN apt-get -y install libprotobuf-c0-dev protobuf-c-compiler
 
+# Used by nominatim
+RUN apt-get -y install libexpat1-dev
+
 # Install nominatim
 RUN pear install DB
 RUN useradd -m -p password1234 nominatim
